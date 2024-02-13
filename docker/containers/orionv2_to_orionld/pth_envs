@@ -1,0 +1,6 @@
+../../envs/orion-v2/orionv2.env
+../../envs/ld-context/ld-context.env
+../../envs/orion-ld/orionld.env
+../../envs/quantumleap/quantum.env
+../../envs/iotagent/iotagent-json.env
+../../envs/jupyter-notebook/jupyter.env

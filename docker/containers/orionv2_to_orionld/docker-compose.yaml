@@ -1,0 +1,318 @@
+version: "3.5"
+services:
+
+  ##############################################################################
+  # FIWARE NGSI-V2                                                             #
+  ##############################################################################
+  # MONGO DB
+  mongo-db_v2:
+    image: mongo:${MONGO_VERSION}
+    hostname: mongo-db_v2
+    container_name: mongo_v2
+    command: --nojournal
+    ports:
+      - "${MDB_PORT_HOSTV2}:${MDB_PORT}"
+    networks:
+      ngsiv2_network:
+        aliases:
+          - ngsiv2.mongodb
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: |
+        host=`hostname --ip-address || echo 'ngsiv2.mongodb'`; 
+        mongo --quiet $$host/test --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)' && echo 0 || echo 1
+      interval: 5s
+
+  # IoT Agent (JSON)
+  iotagent_v2:
+    image: fiware/iotagent-json:${IOTAGENT_VERSION}
+    hostname: iotagent-json_v2
+    container_name: iotagent-json_v2
+    depends_on:
+      - mongo-db_v2
+    environment:
+      - IOTA_CB_NGSI_VERSION=v2
+      - IOTA_CB_HOST=ngsiv2.orion
+      - IOTA_CB_PORT=1026
+      - IOTA_NORTH_PORT=${IOTAGENT_NORTH_PORT}
+      - IOTA_LOG_LEVEL=DEBUG
+      - IOTA_TIMESTAMP=true
+      - IOTA_AUTOCAST=true
+      - IOTA_REGISTRY_TYPE=mongodb
+      - IOTA_MONGO_HOST=ngsiv2.mongodb
+      - IOTA_MONGO_PORT=${MDB_PORT}
+      - IOTA_MONGO_DB=${IOTAGENT_MONGO_DB}
+      - IOTA_HTTP_PORT=${IOTAGENT_HTTP_PORT}
+      - IOTA_PROVIDER_URL=http://ngsiv2.iotagent:${IOTAGENT_NORTH_PORT}
+      - IOTA_DEFAULT_RESOURCE=/iot/json
+    networks:
+      ngsiv2_network:
+        aliases:
+          - ngsiv2.iotagent
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # CONTEXT BROKER (Orion V2)
+  orionv2:
+    image: fiware/orion:${ORIONV2_VERSION}
+    hostname: orionv2
+    container_name: fiware-orionv2
+    depends_on:
+      - mongo-db_v2
+      - iotagent_v2
+    command: -dbhost ngsiv2.mongodb -logLevel DEBUG -logDir /tmp/Context.log
+    networks:
+      ngsiv2_network:
+        aliases:
+          - ngsiv2.orion
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: curl --fail -s http://ngsiv2.orion:1026/version || exit 1
+      interval: 5s
+
+  ##############################################################################
+  # FIWARE NGSI-LD                                                             #
+  ##############################################################################
+  # MONGO DB
+  mongo-db_ld:
+    image: mongo:${MONGO_VERSION}
+    hostname: mongo-db_ld
+    container_name: mongo_ld
+    command: --nojournal
+    ports:
+      - "${MDB_PORT_HOST}:${MDB_PORT}"
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.mongodb
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: |
+        host=`hostname --ip-address || echo 'ngsild.mongodb'`; 
+        mongo --quiet $$host/test --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)' && echo 0 || echo 1
+      interval: 5s
+
+  # @context file is served from here
+  ld-context:
+    image: httpd:${CONTEXTLD_VERSION}
+    hostname: context
+    container_name: ngsild-context
+    volumes:
+        - ${DATAMODELS_PATH}:/usr/local/apache2/htdocs/
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.context
+    healthcheck:
+      test: (wget --server-response --spider --quiet  http://ld-ngsild.context/ngsi-context.jsonld 2>&1 | awk 'NR==1{print $$2}'|  grep -q -e "200") || exit 1
+  
+  # IoT Agent (JSON)
+  iotagent_ld:
+    image: fiware/iotagent-json:${IOTAGENT_VERSION}
+    hostname: iotagent-json_ld
+    container_name: iotagent-json_ld
+    depends_on:
+      - mongo-db_ld
+      - ld-context
+    environment:
+      - IOTA_CB_NGSI_VERSION=ld # use NGSI-LD when sending updates for active attributes
+      - IOTA_CB_HOST=ngsild.orion # Hostname of the context broker to update context
+      - IOTA_CB_PORT=1026 # Port the context broker listens on to update context
+      - IOTA_NORTH_PORT=${IOTAGENT_NORTH_PORT} #4041
+      - IOTA_REGISTRY_TYPE=mongodb # Whether to hold IoT device info in memory or in a database
+      - IOTA_LOG_LEVEL=DEBUG # The log level of the IoT Agent
+      - IOTA_TIMESTAMP=true  # Supply timestamp information with each measurement
+      - IOTA_AUTOCAST=true   # Ensure Ultralight number values are read as numbers not strings
+      - IOTA_MONGO_HOST=ngsild.mongodb # The host name of MongoDB
+      - IOTA_MONGO_PORT=${MDB_PORT} #27017 # The port mongoDB is listening on
+      - IOTA_MONGO_DB=${IOTAGENT_MONGO_DB} #iotagent-json # The name of the database used in mongoDB
+      - IOTA_HTTP_PORT=${IOTAGENT_HTTP_PORT} #7896 # The port used for device traffic over HTTP
+      - IOTA_PROVIDER_URL=http://ngsild.iotagent:${IOTAGENT_NORTH_PORT}
+      - IOTA_DEFAULT_RESOURCE=/iot/json
+      - IOTA_JSON_LD_CONTEXT=http://context/ngsi-context.jsonld
+      - IOTA_FALLBACK_TENANT=openiot
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.iotagent
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # CONTEXT BROKER (Orion LD)
+  orionld:
+    image: fiware/orion-ld:${ORIONLD_VERSION}
+    hostname: orionld
+    container_name: fiware-orionld
+    depends_on:
+      - mongo-db_ld
+      - iotagent_ld
+    environment:
+      - ORIONLD_PORT=${ORIONLD_PORT} #Port to expose Orion-LD.
+      - ORIONLD_MONGO_HOST=ngsild.mongodb #Mongo-DB database host.
+      - ORIONLD_LOG_LEVEL=DEBUG
+      - ORIONLD_MONGO_DB=${ORIONLD_DB_NAME} #Name of the database to be used inside mongo-db.
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.orion
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: curl --fail -s http://ngsild.orion:1026/version || exit 1
+      interval: 5s
+
+  # CRATE DB (Data persistence system)
+  crate-db:
+    image: crate:${CRATEDB_VERSION}
+    hostname: crate-db
+    container_name: db-crate
+    depends_on:
+      - orionld
+    ports:
+      - "${ADMIN_PORT_HOST}:4200" # Admin UI
+    command: [ "crate", "-Cnetwork.host=_site_" ]
+    environment:
+      - CRATE_HEAP_SIZE=2g
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.cratedb
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # QUANTUM LEAP (Data persistence system)
+  quantumleap:
+    image: fiware/quantum-leap:${QUANTUMLEAP_VERSION}
+    hostname: quantumleap
+    container_name: quantum-leap
+    depends_on:
+      - crate-db
+    environment:
+      - CRATE_HOST=ngsild.cratedb
+      - CRATE_PORT=4200
+    networks:
+      ngsild_network:
+        aliases:
+          - ngsild.quantumleap
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  ##############################################################################
+  # Reverse Proxy                                                              #
+  ##############################################################################
+  proxy_server:
+    image: nginx:1.25.2
+    hostname: proxy_server
+    container_name: proxy-server
+    depends_on:
+      # Necesario para que docker complete el /etc/host automaticamente!
+      - orionld
+      - orionv2
+    command:
+      - "bash"
+      - "-c"
+      - |
+        echo 'Proxy server configuration...'
+        tee /etc/nginx/nginx.conf <<EOF
+        user  root;
+        worker_processes  auto;
+        error_log  /var/log/nginx/error.log notice;
+        pid        /var/run/nginx.pid;
+        events {
+          worker_connections  1024;
+        }
+        http{
+          server {
+            listen ngsiv2.to-ngsild:1026;
+            server_name to_orionLD;
+            location / {
+              proxy_pass http://ngsild.orion:1026;
+            }
+          }
+          server {
+            listen ngsiv2.to-ngsild:4041;
+            server_name to_iotaLD;
+            location / {
+              proxy_pass http://ngsild.iotagent:4041;
+            }
+          }
+          server {
+            listen ngsiv2.to-ngsild:7896;
+            server_name to_iotaLDHTTP;
+            location / {
+              proxy_pass http://ngsild.iotagent:7896;
+            }
+          }
+        }
+        EOF
+        nginx -g 'daemon off;'
+    networks:
+      ngsiv2_network:
+        aliases:
+          - ngsiv2.to-ngsild
+      ngsild_network:
+        aliases:
+          - ngsild.to-ngsiv2
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  ##############################################################################
+  # Jupyter Server (for console access)                                        #
+  ##############################################################################
+  develop-env:
+    image: jupyter/base-notebook:ubuntu-22.04
+    hostname: dev-env
+    container_name: orion-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - NB_USER=${NB_USER}
+      - CHOWN_HOME=yes
+      - JUPYTER_ENABLE_LAB=yes
+    working_dir: "/home/${NB_USER}"
+    user: root
+    command:
+      - bash
+      - -c
+      - >
+        apt update && 
+        apt install -y curl jq &&
+        /usr/local/bin/start-notebook.sh
+    volumes:
+      - ${HOST_PATH}:/home/${NB_USER}/notebooks
+      - ${HOST_DATA_PATH}:/home/${NB_USER}/data
+      - ../../../:/home/${NB_USER}/project
+    networks:
+      ngsiv2_network:
+        aliases:
+          - ngsiv2.jupyter
+      ngsild_network:
+        aliases:
+          - ngsild.jupyter
+
+networks:
+  ngsiv2_network:
+    driver: bridge
+  ngsild_network:
+    driver: bridge
