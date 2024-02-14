@@ -41,11 +41,23 @@ docker:
 			else \
 				echo "$$line"; \
 			fi; \
-		done && \
-		read -n1 -p ">> Container number: " folder_number && echo -e "" #&& \
-		selected_folder=$$(ls -d */ | grep -v -E '^_' | sed -n $${folder_number}p) && \
+		done; \
+		while true; do \
+			read -n1 -p ">> Container number: " folder_number && echo -e "" && \
+			selected_folder=$$(ls -d */ | grep -v -E '^_' | sed -n $${folder_number}p); \
+			if [ -d "$${selected_folder}" ]; then \
+				break; \
+			else \
+				echo -e "\e[31mInvalid container number. Please try again.\e[0m"; \
+			fi; \
+		done; \
 		cd $${selected_folder} && \
-		env_files=$$(cat pth_envs) && \
+		if [ -f pth_envs ]; then \
+			env_files=$$(cat pth_envs); \
+		else \
+			echo -e "\e[31mpth_envs file not found. Aborting.\e[0m"; \
+			exit 1; \
+		fi; \
 		docker_compose_command="docker-compose" && \
 		for env_file in $${env_files}; do \
 			docker_compose_command="$${docker_compose_command} --env-file $${env_file}"; \
@@ -62,7 +74,7 @@ docker:
 			rm -f ../../$(DOCKER_STATUS_FILE).bak; \
 			echo -e "[$(GREEN)DONE!$(NC)] Docker $${selected_folder} stopped and removed."; \
 		else \
-			echo -e "\e[31mAcción no reconocida. Abortando.\e[0m"; \
+			echo -e "\e[31mAction not recognized. Aborting.\e[0m"; \
 			exit 1; \
 		fi;
 
