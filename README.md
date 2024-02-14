@@ -12,7 +12,7 @@
   <p align="center">
     Local environment for testing subscriptions between FIWARE Orion brokers NGSI-V2 to NGSI-LD via FIWARE IoT-Agent.
     <br />
-    <a href="https://citcom-vrain.github.io/"><strong>Explore the docs »</strong></a>
+    <a href="https://citcom-vrain.github.io/adaptors/iot_agent/"><strong>Explore the docs »</strong></a>
     <br />
   </p>
 </div>
@@ -140,6 +140,9 @@ Project Link: [https://github.com/github_username/repo_name](https://github.com/
 <!-- REFERENCES -->
 ## References
 
+* [FIWARE IoT-Agent](https://github.com/FIWARE/tutorials.IoT-Agent-JSON)
+* [FIWARE Docu. - API Custom Notificacions](https://github.com/telefonicaid/fiware-orion/blob/master/doc/manuals/orion-api.md#custom-notifications)
+* [FIWARE Docu. - API httpCustom](https://github.com/telefonicaid/fiware-orion/blob/master/doc/manuals/orion-api.md#subscriptionnotificationhttpcustom)
 * [Readme Template](https://github.com/othneildrew/Best-README-Template)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
